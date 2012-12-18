@@ -1,0 +1,58 @@
+There is a wealth of DBMS related work.
+
+Of interest is the NoDB project (EPFL-DIAS lab), Christoph Kock's ideas on using
+LMS (see scala.txt) for optiziming DBMS, background work on query languages and
+optimization techniques for multiple data models, answering queries using views,
+and high-performance (vectorized) query processing.
+
+* NoDB paper, published at SIGMOD 2012.
+  "NoDB: efficient query execution on raw data files"
+
+* Work by PCM on RodentStore, which first proposed an algebra for reading and 
+  writing DBMS data to/from disk, achieving independence of data representation.
+  "The Case for RodentStore, an Adaptive, Declarative Storage System"
+
+* Christoph Koch's ideas on LMS, similar to our own:
+  "Abstraction without regret in data management systems"
+  Most relevant is the second part of this paper.
+
+* Background work on query languages and optimization techniques for multiple
+  data models. Note: most of the following work is theoretical:
+
+  - "Comprehension Syntax"
+  Early proposal to use list comprehensions for querying semistructured data.
+
+  - "Improving List Comprehension Database Queries"
+  Philip Wadler's work showing how list comprehensions have similar expressive
+  power as SQL and can also be optimized. 
+
+  - "UnQL - a query language and algebra for semistructured data based on 
+  structural recursion"
+  Buneman's et al work, further developing the initial comprehension syntax
+  ideas.
+
+  - "Kleisli - a Functional Query System"
+  A full system, built using many of the query language and optimization
+  techniques described in the previous papers.
+
+  - "An Algebra for XML Query"
+  An alternative proposal to XQuery, which integrated the theoretical work
+  described above.
+
+  - "A co-Relational Model of Data for Large Shared Data Banks"
+  - "The World According to LINQ"
+  Papers describing the theory and practice behind Microsoft's LINQ, which again
+  uses many of the same ideas for developing a query language for multiple data
+  models, based on list comprehensions and monads.
+
+* Background work on answering queries using views:
+
+  - "Answering queries using views: a survey"
+  A 2001 survey on using views in DBMS.
+
+* High-performance (vectorized) query processing:
+
+  - "MonetDB/X100: Hyper-Pipelining Query Execution"
+  Paper introducing vectorwise processing for DBMS, as the solution to achieve
+  high IPC.
+
