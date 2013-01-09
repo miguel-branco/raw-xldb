@@ -1,0 +1,14 @@
+[info] Running tutorial.Usage 
+[debug] Starting sandboxed run...
+[debug] Waiting for threads to exit or System.exit to be called.
+[debug]   Classpath:
+[debug] 	/home/manolee/IdeaProjects/raw-scala/target/scala-2.10/classes
+[debug] 	/home/manolee/.sbt/boot/org.scala-lang.virtualized.scala-2.10.0-M7/lib/scala-library.jar
+[debug] 	/home/manolee/.ivy2/local/EPFL/lms_2.10/0.3-SNAPSHOT/jars/lms_2.10.jar
+[debug] 	/home/manolee/.sbt/boot/org.scala-lang.virtualized.scala-2.10.0-M7/lib/scala-compiler.jar
+[debug] 	/home/manolee/.ivy2/cache/org.scala-lang/scala-reflect/jars/scala-reflect-2.10.0-M7.jar
+[debug] Waiting for thread run-main to exit
+[debug] 	Thread run-main exited.
+[debug] Interrupting remaining threads (should be all daemons).
+[debug] Sandboxed run complete..
+[debug] Exited with code 0
