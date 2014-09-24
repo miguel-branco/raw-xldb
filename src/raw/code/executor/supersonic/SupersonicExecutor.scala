@@ -31,6 +31,7 @@ import raw.Util
 import raw.code.Emitter
 import raw.code.Instruction
 import raw.code.Reference
+
 import raw.code.executor.VolcanoExecutor
 
 import raw.code.storage.Storage
@@ -42,7 +43,13 @@ import raw.expression.FieldReference
 import raw.expression.ConstFloat
 import raw.expression.ConstInt32
 import raw.expression.Abs
+import raw.expression.Cos
+import raw.expression.Sin
+import raw.expression.Sinh
+import raw.expression.Sqrt
+import raw.expression.Negate
 import raw.expression.Plus
+import raw.expression.Minus
 import raw.expression.Multiply
 import raw.expression.Divide
 import raw.expression.And
@@ -53,9 +60,13 @@ import raw.expression.Less
 import raw.expression.LessOrEqual
 import raw.expression.Greater
 import raw.expression.GreaterOrEqual
+import raw.expression.If
 
 import raw.operators.AggregateFunction
 import raw.operators.Count
+import raw.operators.Sum
+import raw.operators.First
+import raw.operators.Last
 
 import raw.schema.Schema
 import raw.schema.DataType
@@ -68,8 +79,7 @@ import raw.schema.BOOL
 // FIXME: Consider nested macros for code generation, i.e. macros that take code macros as input. Or use Helper classes and assign the implementation only, i.e. code generate smtg resembling the Volcano model.
 
 class SupersonicExecutor extends VolcanoExecutor {
-  private val storeList = new ListBuffer[String]
-    
+
   private def getSupersonicType(dataType: DataType) = 
     dataType match {
       case ROWID => "kRowidDatatype"
@@ -89,37 +99,31 @@ class SupersonicExecutor extends VolcanoExecutor {
     schema.fields.map(field => Instruction("SUPERSONIC_SCHEMA_ADD", tableName, field.name, getSupersonicType(field.dataType), getSupersonicNullable(field.nullable))) ++
     List(Instruction("SUPERSONIC_TABLE_NEW", tableName))
 
-  def emitBeginLoadFiles(ref: Reference, storage: Storage, fileNames: List[String], schema: Schema): List[Instruction] =
+  def emitBeginLoad(ref: Reference, storage: Storage, fileNames: List[String], schema: Schema): List[Instruction] =
     createSupersonicTable(ref.name, schema) ++
     List(Instruction("LOAD_FILES_LOOP_BEGIN", storage.reference.name, fileNames.length.toString(), "\"" + fileNames.mkString("\",\"") + "\""))
-    
-  def emitEndLoadFiles(ref: Reference, child: Reference, schema: Schema): List[Instruction] =
-    (for (id <- storeList)
-      yield Instruction("SUPERSONIC_STORE_RELEASE", id)).toList ++
-    List(Instruction("LOAD_FILES_LOOP_END", ref.name, child.name))
 
-  def emitScanAndProject(ref: Reference, accessPath: SequentialAccessPath, schema: Schema): List[Instruction] =
+  def emitEndLoad(ref: Reference, child: Reference, schema: Schema): List[Instruction] =
+    List(Instruction("LOAD_FILES_LOOP_END", ref.name, child.name))
+    
+  def emitScan(ref: Reference, accessPath: SequentialAccessPath, schema: Schema): List[Instruction] =
     createSupersonicTable(ref.name, schema) ++
     accessPath.open() ++
     accessPath.getNextTuple() ++
     List(Instruction("SUPERSONIC_TABLE_ADD", ref.name)) ++
     (for ((field, col) <- schema.fields.zipWithIndex)
-      yield field.dataType match {
-        case ROWID => Instruction("SUPERSONIC_TABLE_SET_KEY", ref.name, col.toString, "row")
-        case _ => Instruction("SUPERSONIC_TABLE_SET", ref.name, col.toString, getSupersonicType(field.dataType), accessPath.getField(field).name)}) ++
+      yield Instruction("SUPERSONIC_TABLE_SET", ref.name, col.toString, getSupersonicType(field.dataType), accessPath.getField(field).name)) ++
     accessPath.close()
    
-  def emitScanByKeyAndProject(ref: Reference, accessPath: KeyAccessPath, child: Reference, keys: Schema, schema: Schema): List[Instruction] = {
+  def emitScanByKey(ref: Reference, accessPath: KeyAccessPath, child: Reference, key: Schema, schema: Schema): List[Instruction] = {
     val uniqueId = Util.getUniqueId()
     createSupersonicTable(ref.name, schema) ++
-    List(Instruction("SUPERSONIC_COLUMN_LOOP_BEGIN", uniqueId, child.name, keys.names(0), "kRowidDatatype", "rowid_t")) ++
+    List(Instruction("SUPERSONIC_COLUMN_LOOP_BEGIN", uniqueId, child.name, key.names(0), "kRowidDatatype", "rowid_t")) ++
     accessPath.open(Reference(uniqueId)) ++
     accessPath.getNextTuple() ++
     List(Instruction("SUPERSONIC_TABLE_ADD", ref.name)) ++
     (for ((field, col) <- schema.fields.zipWithIndex)
-      yield field.dataType match {
-        case ROWID => Instruction("SUPERSONIC_TABLE_SET_KEY", ref.name, col.toString, uniqueId)
-        case _ => Instruction("SUPERSONIC_TABLE_SET", ref.name, col.toString, getSupersonicType(field.dataType), accessPath.getField(field).name)}) ++
+      yield Instruction("SUPERSONIC_TABLE_SET", ref.name, col.toString, getSupersonicType(field.dataType), accessPath.getField(field).name)) ++
     accessPath.close(Reference(uniqueId)) ++
     List(Instruction("SUPERSONIC_COLUMN_LOOP_END"))
   }
@@ -131,7 +135,13 @@ class SupersonicExecutor extends VolcanoExecutor {
       case ConstFloat(value) => "ConstFloat(" + value + ")"
       case ConstInt32(value) => "ConstInt32(" + value + ")"
       case Abs(child) => "Abs(" + emitExpression(child) + ")"
+      case Cos(child) => "Cos(" + emitExpression(child) + ")"
+      case Sin(child) => "Sin(" + emitExpression(child) + ")"
+      case Sinh(child) => "Sinh(" + emitExpression(child) + ")"
+      case Sqrt(child) => "SqrtQuiet(" + emitExpression(child) + ")"
+      case Negate(child) => "Negate(" + emitExpression(child) + ")"
       case Plus(left, right) => "Plus(" + emitExpression(left) + "," + emitExpression(right) + ")"
+      case Minus(left, right) => "Minus(" + emitExpression(left) + "," + emitExpression(right) + ")"
       case Multiply(left, right) => "Multiply(" + emitExpression(left) + "," + emitExpression(right) + ")"
       case Divide(left, right) => "Divide(" + emitExpression(left) + "," + emitExpression(right) + ")"
       case And(left, right) => "And(" + emitExpression(left) + "," + emitExpression(right) + ")"
@@ -142,9 +152,10 @@ class SupersonicExecutor extends VolcanoExecutor {
       case LessOrEqual(left, right) => "LessOrEqual(" + emitExpression(left) + "," + emitExpression(right) + ")"
       case Greater(left, right) => "Greater(" + emitExpression(left) + "," + emitExpression(right) + ")"
       case GreaterOrEqual(left, right) => "GreaterOrEqual(" + emitExpression(left) + "," + emitExpression(right) + ")"
+      case If(first, second, third) => "If(" + emitExpression(first) + "," + emitExpression(second) + "," + emitExpression(third) + ")"
     }
   
-  def emitFilterAndProject(ref: Reference, child: Reference, expression: Expression, schema: Schema): List[Instruction] =
+  def emitFilter(ref: Reference, child: Reference, expression: Expression, schema: Schema): List[Instruction] =
     List(Instruction("SUPERSONIC_PROJECTOR_NEW", ref.name)) ++
     schema.names.map(Instruction("SUPERSONIC_PROJECTOR_ADD", ref.name, _)) ++
     List(Instruction("SUPERSONIC_FILTER", ref.name, emitExpression(expression), child.name))
@@ -169,26 +180,36 @@ class SupersonicExecutor extends VolcanoExecutor {
   def emitHashUniqueAntiJoin(ref: Reference, left: Reference, right: Reference, leftSelector: Schema, rightSelector: Schema, leftProjector: Schema, rightProjector: Schema, schema: Schema): List[Instruction] = 
     emitHashJoin(ref, "ANTI", true, left, right, leftSelector, rightSelector, leftProjector, rightProjector)
   
-  def emitGroupAggregate(ref: Reference, child: Reference, keys: Schema, aggregates: List[AggregateFunction], schema: Schema): List[Instruction] =                              
+  def emitGroupAggregate(ref: Reference, child: Reference, key: Schema, aggregates: List[AggregateFunction], schema: Schema): List[Instruction] =                              
     List(Instruction("SUPERSONIC_PROJECTOR_NEW", "agg_key_" + ref.name)) ++
-    keys.names.map(Instruction("SUPERSONIC_PROJECTOR_ADD", "agg_key_" + ref.name, _)) ++
+    key.names.map(Instruction("SUPERSONIC_PROJECTOR_ADD", "agg_key_" + ref.name, _)) ++
     List(Instruction("SUPERSONIC_AGGREGATOR_NEW", ref.name)) ++
     (for (aggregate <- aggregates)
       yield aggregate match {
-        case Count(alias) => Instruction("SUPERSONIC_AGGREGATOR_ADD", ref.name, "COUNT", "", alias) 
+        case Count(alias) => Instruction("SUPERSONIC_AGGREGATOR_ADD", ref.name, "COUNT", "", alias)
+        case Sum(alias, field) => Instruction("SUPERSONIC_AGGREGATOR_ADD", ref.name, "SUM", field, alias)
+        case First(alias, field) => Instruction("SUPERSONIC_AGGREGATOR_ADD", ref.name, "FIRST", field, alias)
+        case Last(alias, field) => Instruction("SUPERSONIC_AGGREGATOR_ADD", ref.name, "LAST", field, alias)
       }) ++
     List(Instruction("SUPERSONIC_GROUP_AGGREGATE", ref.name, child.name))
   
-  def emitUnionAllAndProject(ref: Reference, children: List[Reference], schema: Schema): List[Instruction] =
+  def emitUnionAll(ref: Reference, children: List[Reference], schema: Schema): List[Instruction] =
     createSupersonicTable(ref.name, schema) ++
     children.map(child => Instruction("SUPERSONIC_UNION", ref.name, child.name))
   
-  def emitStoreOutput(identifier: String, child: Reference, schema: Schema): List[Instruction] = {
-    storeList += identifier
-    List(Instruction("SUPERSONIC_STORE", identifier, child.name))
-  }
+  def emitCompute(ref: Reference, child: Reference, aliasedExpressions: List[Tuple2[String, Expression]], schema: Schema): List[Instruction] =
+    List(Instruction("SUPERSONIC_COMPUTOR_NEW", ref.name)) ++
+    (for ((alias, expression) <- aliasedExpressions)
+      yield Instruction("SUPERSONIC_COMPUTOR_ADD", ref.name, alias, emitExpression(expression))) ++
+    List(Instruction("SUPERSONIC_COMPUTE", ref.name, child.name))
     
-  def emitReuseOutput(ref: Reference, identifier: String, schema: Schema): List[Instruction] =
+  def emitStore(ref: Reference, identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_STORE", ref.name, identifier))
+    
+  def emitRelease(identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_RELEASE", identifier))
+
+  def emitReuse(ref: Reference, identifier: String): List[Instruction] =
     List(Instruction("SUPERSONIC_REUSE", ref.name, identifier))
   
   def emitStartBenchmark(identifier: String): List[Instruction] =
@@ -197,10 +218,30 @@ class SupersonicExecutor extends VolcanoExecutor {
   def emitStopBenchmark(identifier: String): List[Instruction] =
     List(Instruction("SUPERSONIC_BENCHMARK_STOP", identifier))
 
-  def emitPrintBenchmarkConsole(identifier: String): List[Instruction] =
+  def emitPrintBenchmarkToConsole(identifier: String): List[Instruction] =
     List(Instruction("SUPERSONIC_BENCHMARK_PRINT", identifier))
 
-  def emitPrintOutputConsole(child: Reference): List[Instruction] =
-    List(Instruction("SUPERSONIC_PRINT", child.name))
- 
+  def emitPrintToConsole(child: Reference): List[Instruction] =
+    List(Instruction("SUPERSONIC_PRINT", child.name))    
+
+  def emitHistogramNew(identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_HISTOGRAM_NEW", identifier))
+    
+  def emitHistogramDraw(identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_HISTOGRAM_DRAW", identifier))
+    
+  def emitHistogramFill(identifier: String, child: Reference): List[Instruction] =
+    List(Instruction("SUPERSONIC_HISTOGRAM_FILL", identifier, child.name))    
+    
+  def emitQueueInit(identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_QUEUE_INIT", identifier))
+    
+  def emitQueuePush(identifier: String, ref: Reference): List[Instruction] =
+    List(Instruction("SUPERSONIC_QUEUE_PUSH", identifier, ref.name))
+    
+  def emitQueuePop(ref: Reference, identifier: String): List[Instruction] =
+    List(Instruction("SUPERSONIC_QUEUE_POP", identifier, ref.name))
+    
+  def emitUDFFilter(ref: Reference, child: Reference): List[Instruction] =
+    List(Instruction("DEMO_UDF", ref.name, child.name))
 }

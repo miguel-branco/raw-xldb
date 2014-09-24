@@ -23,7 +23,7 @@ class RootHelper {
   TChain* chain;
 };
 
-#define ROOT_INIT()                                 TApplication App(argv[0], &argc, argv);
+#define ROOT_INIT(rootId)                           TApplication App(argv[0], &argc, argv);
 #define ROOT_FILE_ADD(rootId,file)                  RootHelper rootId;                                                                      \
                                                     rootId.addFileOrFail(file);
 #define ROOT_FIELD_SET(rootId,field,type)           TBranch* branch_ ## rootId ## field;                                                    \

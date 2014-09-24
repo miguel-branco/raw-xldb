@@ -24,28 +24,14 @@ package raw.code
 
 import raw.code.executor.Executor
 
-import raw.code.storage.AccessPath
-import raw.code.storage.Storage
-
 import raw.operators.PhysicalOperator
-import raw.operators.ScanAndProject
-import raw.operators.ScanByKeyAndProject
-import raw.operators.FilterAndProject
-import raw.operators.HashUniqueInnerJoin
-import raw.operators.HashUniqueAntiJoin
-import raw.operators.GroupAggregate
-import raw.operators.UnionAllAndProject
-import raw.operators.StoreOutput
-import raw.operators.ReuseOutput
-import raw.operators.StoreBenchmark
-import raw.operators.PrintBenchmarkConsole
-import raw.operators.PrintOutputConsole
 
 object CodeGeneration {
   def generate(queries: List[PhysicalOperator], emitter: Emitter, executor: Executor) = {
     emitter.emit(executor.init())
-    for (query <- queries)
+    for (query <- queries) {
       emitter.emit(executor.code(query))
+    }
     emitter.emit(executor.done())
     emitter.generate()
   }

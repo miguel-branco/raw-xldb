@@ -46,13 +46,13 @@ import raw.schema.UINT32
  * (Handling errors would be tricky here.)
  */
 class CsvSequentialAccessPath(ref: Reference, fields: Schema, val schema: Schema) extends SequentialAccessPath(ref, fields) {
-  private val uniqueId = Util.getUniqueId()
+  private val csvId = Util.getUniqueId()
   
   def init(): List[Instruction] =
-    List(Instruction("CSV_INIT", uniqueId, ref.name))    
+    List(Instruction("CSV_INIT", csvId, ref.name))    
   
   def open(): List[Instruction] =
-    List(Instruction("CSV_OUTER_LOOP_BEGIN", uniqueId))
+    List(Instruction("CSV_OUTER_LOOP_BEGIN", csvId))
       
   def close(): List[Instruction] =
     List(Instruction("CSV_OUTER_LOOP_END"))
@@ -66,10 +66,10 @@ class CsvSequentialAccessPath(ref: Reference, fields: Schema, val schema: Schema
       yield
         if (fieldsPos.contains(i))
           fieldsPos(i).dataType match {
-            case INT32 => Instruction("CSV_FIELD_READ_AS_INT", uniqueId, fieldsPos(i).name)
-            case UINT32 => Instruction("CSV_FIELD_READ_AS_INT", uniqueId, fieldsPos(i).name)
+            case INT32 => Instruction("CSV_FIELD_READ_AS_INT", csvId, fieldsPos(i).name)
+            case UINT32 => Instruction("CSV_FIELD_READ_AS_INT", csvId, fieldsPos(i).name)
         }
-        else Instruction("CSV_FIELD_SKIP", uniqueId)).toList
+        else Instruction("CSV_FIELD_SKIP", csvId)).toList
   }
   
   def getField(field: Field): Reference =

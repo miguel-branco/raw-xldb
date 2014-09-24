@@ -51,12 +51,13 @@ private object RootUtil {
 }
 
 class RootOuterSequentialAccessPath(ref: Reference, fields: Schema) extends SequentialAccessPath(ref, fields) {
-  private val rootId = Util.getUniqueId()   
+  private val rootId = Util.getUniqueId()  
+  // FIXME: uniqueId is actually the for-loop variable, so rename it accordingly
   private val uniqueId = Util.getUniqueId()
   
   def init(): List[Instruction] =
     List(Instruction("ROOT_FILE_ADD", rootId, ref.name)) ++
-    (for (field <- fields.fields; if field.name != "ID")
+    (for (field <- fields.fields; if !field.name.contains("ID"))
       yield Instruction("ROOT_FIELD_SET", rootId, field.name, RootUtil.getRootType(field.dataType)))
   
   def open(): List[Instruction] =
@@ -69,28 +70,34 @@ class RootOuterSequentialAccessPath(ref: Reference, fields: Schema) extends Sequ
 
   def getNextTuple(): List[Instruction] =
     List(Instruction("ROOT_ROW_GET", rootId, uniqueId)) ++
-    (for (fieldName <- fields.names; if fieldName != "ID")
+    (for (fieldName <- fields.names; if !fieldName.contains("ID"))
       yield Instruction("ROOT_FIELD_GET", rootId, uniqueId, fieldName))
     
   def getField(field: Field): Reference =
-    Reference(rootId + field.name)
+    if (field.name == "EventID") Reference(uniqueId)
+    else Reference(rootId + field.name)
 }
 
 
 class RootInnerKeyAccessPath(ref: Reference, fields: Schema) extends KeyAccessPath(ref, fields) {
   private val rootId = Util.getUniqueId()  
+  // FIXME: Rename uniqueId to smtg more meaningful
   private val uniqueId = Util.getUniqueId()
+  // FIXME: Use of mutable state is ugly...
+  private var keyId: String = ""
 
   def init(): List[Instruction] =
     List(Instruction("ROOT_FILE_ADD", rootId, ref.name)) ++
-    (for (field <- fields.fields; if field.name != "ID")
+    (for (field <- fields.fields; if !field.name.contains("ID"))
       yield Instruction("ROOT_VECTOR_SET", rootId, field.name, RootUtil.getRootType(field.dataType)))
   
-  def open(key: Reference): List[Instruction] = 
+  def open(key: Reference): List[Instruction] =  {
+    keyId = key.name
     List(Instruction("ROOT_ROW_GET", rootId, key.name)) ++
-    (for (fieldName <- fields.names; if fieldName != "ID")
+    (for (fieldName <- fields.names; if !fieldName.contains("ID"))
       yield Instruction("ROOT_FIELD_GET", rootId, key.name, fieldName)) ++
-    List(Instruction("ROOT_VECTOR_LOOP_BEGIN", rootId, uniqueId, fields.names.filter(_ != "ID")(0)))
+    List(Instruction("ROOT_VECTOR_LOOP_BEGIN", rootId, uniqueId, fields.names.filterNot(_.contains("ID"))(0)))
+  }
   
   def close(key: Reference): List[Instruction] =
     List(Instruction("ROOT_VECTOR_LOOP_END"))
@@ -98,9 +105,11 @@ class RootInnerKeyAccessPath(ref: Reference, fields: Schema) extends KeyAccessPa
   def done(): List[Instruction] = List()
     
   def getNextTuple(): List[Instruction] =
-    for (field <- fields.fields; if field.name != "ID")
+    for (field <- fields.fields; if !field.name.contains("ID"))
       yield Instruction("ROOT_VECTOR_GET", rootId, "vec_" + field.name, RootUtil.getRootType(field.dataType), field.name, uniqueId)
     
   def getField(field: Field): Reference =
-    Reference(rootId + "vec_" + field.name)
+    if (field.name == "EventID") Reference(keyId)
+    else if (field.name.contains("ID")) Reference(uniqueId)
+    else Reference(rootId + "vec_" + field.name)
 }

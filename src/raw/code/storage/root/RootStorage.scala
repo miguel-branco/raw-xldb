@@ -67,7 +67,7 @@ class RootInnerKnownSchemaTable(val ref: Reference, schema: Schema) extends Know
 class RootStorage extends Storage {
   override val toString = "ROOT: " + reference.name
   
-  private val eventSchema = new Schema(List(Field("ID", ROWID, false),
+  private val eventSchema = new Schema(List(Field("EventID", ROWID, false),
                                             Field("RunNumber", UINT32, false),
                                             Field("lbn", UINT32, false),
                                             Field("EF_e24vhi_medium1", BOOL, false),
@@ -75,11 +75,14 @@ class RootStorage extends Storage {
                                             Field("EF_2e12Tvh_loose1", BOOL, false),
                                             Field("EF_mu24i_tight", BOOL, false),
                                             Field("EF_mu36_tight", BOOL, false),
-                                            Field("EF_2mu13", BOOL, false)))
+                                            Field("EF_2mu13", BOOL, false),
+                                            Field("MET_RefFinal_etx", FLOAT, false),
+                                            Field("MET_RefFinal_ety", FLOAT, false)))
   private val eventTable = new RootOuterKnownSchemaTable(reference, eventSchema)
   TableCatalog.registerTable("events", eventTable)
   
-  private val muonSchema = new Schema(List(Field("ID", ROWID, false),
+  private val muonSchema = new Schema(List(Field("MuonID", ROWID, false),
+                                           Field("EventID", ROWID, false),
                                            Field("mu_ptcone20", FLOAT, false),
                                            Field("mu_pt", FLOAT, false),
                                            Field("mu_eta", FLOAT, false),
@@ -97,7 +100,8 @@ class RootStorage extends Storage {
   private val muonTable = new RootInnerKnownSchemaTable(reference, muonSchema)
   TableCatalog.registerTable("muons", muonTable)
 
-  private val electronSchema = new Schema(List(Field("ID", ROWID, false),
+  private val electronSchema = new Schema(List(Field("ElectronID", ROWID, false),
+                                               Field("EventID", ROWID, false),
                                                Field("el_ptcone20", FLOAT, false),
                                                Field("el_pt", FLOAT, false),
                                                Field("el_eta", FLOAT, false),
@@ -106,7 +110,8 @@ class RootStorage extends Storage {
   private val electronTable = new RootInnerKnownSchemaTable(reference, electronSchema)
   TableCatalog.registerTable("electrons", electronTable)
 
-  private val jetSchema = new Schema(List(Field("ID", ROWID, false),
+  private val jetSchema = new Schema(List(Field("JetID", ROWID, false),
+                                          Field("EventID", ROWID, false),
                                           Field("jet_E", FLOAT, false),
                                           Field("jet_pt", FLOAT, false),
                                           Field("jet_phi", FLOAT, false),
@@ -118,7 +123,7 @@ class RootStorage extends Storage {
   TableCatalog.registerTable("jets", jetTable)
   
   def init(): List[Instruction] =
-    List(Instruction("ROOT_INIT"))      
+    List(Instruction("ROOT_INIT", reference.name))      
 
   def done(): List[Instruction] = List()
 }

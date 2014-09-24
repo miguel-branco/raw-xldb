@@ -36,29 +36,36 @@ import raw.expression.Expression
 
 import raw.operators.AggregateFunction
 import raw.operators.PhysicalOperator
-import raw.operators.LoadFiles
-import raw.operators.ScanAndProject
-import raw.operators.ScanByKeyAndProject
-import raw.operators.FilterAndProject
+import raw.operators.PhysicalLoad
+import raw.operators.PhysicalScan
+import raw.operators.PhysicalScanByKey
+import raw.operators.PhysicalFilter
 import raw.operators.HashUniqueInnerJoin
 import raw.operators.HashUniqueAntiJoin
 import raw.operators.GroupAggregate
-import raw.operators.UnionAllAndProject
-import raw.operators.StoreOutput
-import raw.operators.ReuseOutput
+import raw.operators.PhysicalUnionAll
+import raw.operators.PhysicalCompute
+import raw.operators.PhysicalWith
+import raw.operators.PhysicalReuse
 import raw.operators.StoreBenchmark
-import raw.operators.PrintBenchmarkConsole
-import raw.operators.PrintOutputConsole
+import raw.operators.PrintBenchmarkToConsole
+import raw.operators.PrintToConsole
+import raw.operators.PhysicalHistogram
+import raw.operators.PhysicalHistogramFill
+import raw.operators.PhysicalQueueInit
+import raw.operators.PhysicalQueuePush
+import raw.operators.PhysicalQueuePop
+import raw.operators.PhysicalUDFFilter
 
 import raw.schema.Schema
 
 /** Emits code that follows a Volcano model. */
 abstract class VolcanoExecutor extends Executor {
-  def emitBeginLoadFiles(ref: Reference, storage: Storage, fileNames: List[String], schema: Schema): List[Instruction]
-  def emitEndLoadFiles(ref: Reference, child: Reference, schema: Schema): List[Instruction]
-  def emitScanAndProject(ref: Reference, accessPath: SequentialAccessPath, schema: Schema): List[Instruction]
-  def emitScanByKeyAndProject(ref: Reference, accessPath: KeyAccessPath, child: Reference, keys: Schema, schema: Schema): List[Instruction]
-  def emitFilterAndProject(ref: Reference, child: Reference, expression: Expression, schema: Schema): List[Instruction] 
+  def emitBeginLoad(ref: Reference, storage: Storage, fileNames: List[String], schema: Schema): List[Instruction]
+  def emitEndLoad(ref: Reference, child: Reference, schema: Schema): List[Instruction]
+  def emitScan(ref: Reference, accessPath: SequentialAccessPath, schema: Schema): List[Instruction]
+  def emitScanByKey(ref: Reference, accessPath: KeyAccessPath, child: Reference, key: Schema, schema: Schema): List[Instruction]
+  def emitFilter(ref: Reference, child: Reference, expression: Expression, schema: Schema): List[Instruction] 
   def emitHashUniqueInnerJoin(ref: Reference,
                               left: Reference, right: Reference,
                               leftSelector: Schema, rightSelector: Schema,
@@ -69,54 +76,60 @@ abstract class VolcanoExecutor extends Executor {
                              leftSelector: Schema, rightSelector: Schema,
                              leftProjector: Schema, rightProjector: Schema,
                              schema: Schema): List[Instruction]
-  def emitGroupAggregate(ref: Reference, child: Reference, keys: Schema, aggregates: List[AggregateFunction], schema: Schema): List[Instruction]                              
-  def emitUnionAllAndProject(ref: Reference, children: List[Reference], schema: Schema): List[Instruction]
-  def emitStoreOutput(identifier: String, child: Reference, schema: Schema): List[Instruction]
-  def emitReuseOutput(ref: Reference, identifier: String, schema: Schema): List[Instruction]
+  def emitGroupAggregate(ref: Reference, child: Reference, key: Schema, aggregates: List[AggregateFunction], schema: Schema): List[Instruction]                              
+  def emitUnionAll(ref: Reference, children: List[Reference], schema: Schema): List[Instruction]
+  def emitCompute(ref: Reference, child: Reference, aliasedExpressions: List[Tuple2[String, Expression]], schema: Schema): List[Instruction]
+  def emitStore(ref: Reference, identifier: String): List[Instruction]
+  def emitRelease(identifier: String): List[Instruction]
+  def emitReuse(ref: Reference, identifier: String): List[Instruction]
   def emitStartBenchmark(identifier: String): List[Instruction]
   def emitStopBenchmark(identifier: String): List[Instruction]
-  def emitPrintBenchmarkConsole(identifier: String): List[Instruction]
-  def emitPrintOutputConsole(child: Reference): List[Instruction]
+  def emitPrintBenchmarkToConsole(identifier: String): List[Instruction]
+  def emitPrintToConsole(child: Reference): List[Instruction]
+  def emitHistogramNew(identifier: String): List[Instruction]
+  def emitHistogramDraw(identifier: String): List[Instruction]
+  def emitHistogramFill(identifier: String, child: Reference): List[Instruction]
+  def emitQueueInit(identifier: String): List[Instruction]
+  def emitQueuePush(identifier: String, ref: Reference): List[Instruction]
+  def emitQueuePop(ref: Reference, identifier: String): List[Instruction]
+  def emitUDFFilter(ref: Reference, child: Reference): List[Instruction]
   
-  def code(operator: PhysicalOperator): List[Instruction] = {
-    def getReference(operator: PhysicalOperator): Reference =
+  def code(query: PhysicalOperator): List[Instruction] = {
+    def newReference(operator: PhysicalOperator): Reference =
       Reference(Util.getUniqueId())
     
     def _emit(operator: PhysicalOperator): Tuple2[List[Instruction], Reference] = {
       operator match {
-        case LoadFiles(storage, fileNames, query, schema) => {
-          val ref = getReference(operator)
-          val beginCode = emitBeginLoadFiles(ref, storage, fileNames, schema)
-          val tuples = query.map(_emit(_))
-          val childrenCode = tuples.map(_._1)
-          val childrenRef = tuples.map(_._2)
-          val endCode = emitEndLoadFiles(ref, childrenRef.last, schema)
-          (storage.init() ++ beginCode ++ childrenCode.foldLeft(List[Instruction]())(_ ++ _) ++ endCode ++ storage.done(), ref)
+        case PhysicalLoad(storage, fileNames, query, schema) => {
+          val ref = newReference(operator)
+          val beginCode = emitBeginLoad(ref, storage, fileNames, schema)
+          val (queryCode, queryRef) = _emit(query)
+          val endCode = emitEndLoad(ref, queryRef, schema)
+          (storage.init() ++ beginCode ++ queryCode ++ endCode ++ storage.done(), ref)          
          }
-        
-        case ScanAndProject(table, schema) => {
-          val ref = getReference(operator)
+        case PhysicalScan(table, schema) => {
+          val ref = newReference(operator)
           val accessPath = table.getSequentialAccessPath(schema)
-          val code = emitScanAndProject(ref, accessPath, schema)
+          val code = emitScan(ref, accessPath, schema)
           (accessPath.init() ++ code ++ accessPath.done(), ref)
         }
-        case ScanByKeyAndProject(table, child, keys, schema) => {
+        case PhysicalScanByKey(table, child, key, schema) => {
           val (childCode, childRef) = _emit(child)
-          val ref = getReference(operator)
+          val ref = newReference(operator)
           val accessPath = table.getKeyAccessPath(schema)
-          val code = emitScanByKeyAndProject(ref, accessPath, childRef, keys, schema)
+          val code = emitScanByKey(ref, accessPath, childRef, key, schema)
           (childCode ++ accessPath.init() ++ code ++ accessPath.done(), ref)
         }
-        case FilterAndProject(child, expression, schema) => {
+        case PhysicalFilter(child, expression, schema) => {
           val (childCode, childRef) = _emit(child)
-          val ref = getReference(operator)
-          val code = emitFilterAndProject(ref, childRef, expression, schema)
+          val ref = newReference(operator)
+          val code = emitFilter(ref, childRef, expression, schema)
           (childCode ++ code, ref)
         }
         case HashUniqueInnerJoin(left, right, leftSelector, rightSelector, leftProjector, rightProjector, schema) => {
           val (leftCode, leftRef) = _emit(left)
           val (rightCode, rightRef) = _emit(right)
-          val ref = getReference(operator)          
+          val ref = newReference(operator)          
           val code = emitHashUniqueInnerJoin(ref,
                                              leftRef,
                                              rightRef,
@@ -130,7 +143,7 @@ abstract class VolcanoExecutor extends Executor {
         case HashUniqueAntiJoin(left, right, leftSelector, rightSelector, leftProjector, rightProjector, schema) => {
           val (leftCode, leftRef) = _emit(left)
           val (rightCode, rightRef) = _emit(right)
-          val ref = getReference(operator)          
+          val ref = newReference(operator)          
           val code = emitHashUniqueAntiJoin(ref,
                                             leftRef,
                                             rightRef,
@@ -141,28 +154,36 @@ abstract class VolcanoExecutor extends Executor {
                                             schema)
           (leftCode ++ rightCode ++ code, ref)
         }        
-        case GroupAggregate(child, keys, aggregates, schema) => {
+        case GroupAggregate(child, key, aggregates, schema) => {
           val (childCode, childRef) = _emit(child)
-          val ref = getReference(operator)                    
-          val code = emitGroupAggregate(ref, childRef, keys, aggregates, schema)
+          val ref = newReference(operator)                    
+          val code = emitGroupAggregate(ref, childRef, key, aggregates, schema)
           (childCode ++ code, ref)
         }
-        case UnionAllAndProject(children, schema) => {
+        case PhysicalUnionAll(children, schema) => {
           val tuples = children.map(_emit(_))
           val childrenCode = tuples.map(_._1)
           val childrenRef = tuples.map(_._2)
-          val ref = getReference(operator)                    
-          val code = emitUnionAllAndProject(ref, childrenRef, schema)
+          val ref = newReference(operator)                    
+          val code = emitUnionAll(ref, childrenRef, schema)
           (childrenCode.foldLeft(List[Instruction]())(_ ++ _) ++ code, ref)
         }
-        case StoreOutput(identifier, child, schema) => {
+        case PhysicalCompute(child, aliasedExpressions, schema) => {
           val (childCode, childRef) = _emit(child)
-          val code = emitStoreOutput(identifier, childRef, schema)
-          (childCode ++ code, childRef)
+          val ref = newReference(operator)
+          val code = emitCompute(ref, childRef, aliasedExpressions, schema)
+          (childCode ++ code, ref)
         }
-        case ReuseOutput(identifier, schema) => {
-          val ref = getReference(operator)          
-          val code = emitReuseOutput(ref, identifier, schema)
+        case PhysicalWith(identifier, withQuery, childQuery, schema) => {
+          val (withCode, withRef) = _emit(withQuery)
+          val storeCode = emitStore(withRef, identifier)          
+          val (childCode, childRef) = _emit(childQuery)
+          val releaseCode = emitRelease(identifier)
+          (withCode ++ storeCode ++ childCode ++ releaseCode, childRef)
+        }
+        case PhysicalReuse(identifier, schema) => {
+          val ref = newReference(operator)
+          val code = emitReuse(ref, identifier)
           (code, ref)
         }
         case StoreBenchmark(identifier, child, _) => {
@@ -171,20 +192,56 @@ abstract class VolcanoExecutor extends Executor {
           val postCode = emitStopBenchmark(identifier)
           (preCode ++ childCode ++ postCode, childRef)
         }
-        case PrintBenchmarkConsole(identifier, child, _) => {
+        case PrintBenchmarkToConsole(identifier, child, _) => {
           val (childCode, childRef) = _emit(child)
-          val code = emitPrintBenchmarkConsole(identifier)
+          val code = emitPrintBenchmarkToConsole(identifier)
           (childCode ++ code, childRef)
         }
-        case PrintOutputConsole(child, _) => {
+        case PrintToConsole(child, _) => {
           val (childCode, childRef) = _emit(child)
-          val code = emitPrintOutputConsole(childRef)
+          val code = emitPrintToConsole(childRef)
           (childCode ++ code, childRef)
+        }
+        case PhysicalHistogram(identifier, child, _) => {
+          val newHistoCode = emitHistogramNew(identifier)
+          val (childCode, childRef) = _emit(child)
+          val drawHistoCode = emitHistogramDraw(identifier)
+          (newHistoCode ++ childCode ++ drawHistoCode, childRef)
+        }
+        case PhysicalHistogramFill(identifier, child, _) => {
+          val (childCode, childRef) = _emit(child)
+          val code = emitHistogramFill(identifier, childRef)
+          (childCode ++ code, childRef)          
+        }
+        case PhysicalQueueInit(identifier, child, schema) => {
+          val queueCode = emitQueueInit(identifier)
+          val (childCode, childRef) = _emit(child)
+          (queueCode ++ childCode, childRef)
+        }
+        case PhysicalQueuePush(identifier, child, schema) => {
+          val (childCode, childRef) = _emit(child)
+          val queueCode = emitQueuePush(identifier, childRef)
+          (childCode ++ queueCode, childRef)
+        }
+        case PhysicalQueuePop(identifier, schema) => {
+          val ref = newReference(operator)
+          val queueCode = emitQueuePop(ref, identifier)
+          (queueCode, ref)
+        }
+        case PhysicalUDFFilter(child, schema) => {
+          val (childCode, childRef) = _emit(child)          
+          val ref = newReference(operator)
+          val udfCode = emitUDFFilter(ref, childRef)
+          (childCode ++ udfCode, ref)
         }
       }
     }
-    val (childCode, ref) = _emit(operator)
-    childCode
+    
+    val (code, ref) = _emit(query)
+    code ++ emitRelease(ref.name)
   }  
 }
+
+
+
 

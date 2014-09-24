@@ -35,43 +35,64 @@ import raw.schema.Schema
 
 sealed abstract class PhysicalOperator(val schema: Schema)
 
-case class LoadFiles(val storage: Storage,
-                     val fileNames: List[String],
-                     val query: List[PhysicalOperator],
-                     s: Schema) extends PhysicalOperator(s)
-case class ScanAndProject(val table: Table,
-                          s: Schema) extends PhysicalOperator(s)
-case class ScanByKeyAndProject(val table: Table,
-                               val child: PhysicalOperator,
-                               val keys: Schema,
-                               s: Schema) extends PhysicalOperator(s)                          
-case class FilterAndProject(val child: PhysicalOperator,
-                            val expression: Expression,
-                            s: Schema) extends PhysicalOperator(s)
+case class PhysicalLoad(val storage: Storage,
+                        val fileNames: List[String],
+                        val query: PhysicalOperator,
+                        _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalScan(val table: Table,
+                        _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalScanByKey(val table: Table,
+                             val child: PhysicalOperator,
+                             val key: Schema,
+                             _schema: Schema) extends PhysicalOperator(_schema)                          
+case class PhysicalFilter(val child: PhysicalOperator,
+                          val expression: Expression,
+                          _schema: Schema) extends PhysicalOperator(_schema)
 case class HashUniqueInnerJoin(val left: PhysicalOperator, val right: PhysicalOperator,
                                val leftSelector: Schema, val rightSelector: Schema,
                                val leftProjector: Schema, val rightProjector: Schema,
-                               s: Schema) extends PhysicalOperator(s)
+                               _schema: Schema) extends PhysicalOperator(_schema)
 case class HashUniqueAntiJoin(val left: PhysicalOperator, val right: PhysicalOperator,
                               val leftSelector: Schema, val rightSelector: Schema,
                               val leftProjector: Schema, val rightProjector: Schema,
-                              s: Schema) extends PhysicalOperator(s)
+                              _schema: Schema) extends PhysicalOperator(_schema)
 case class GroupAggregate(val child: PhysicalOperator,
-                          val keys: Schema,
+                          val key: Schema,
                           val aggregates: List[AggregateFunction],
-                          s: Schema) extends PhysicalOperator(s)
-case class UnionAllAndProject(val children: List[PhysicalOperator],
-                              s: Schema) extends PhysicalOperator(s)
-case class StoreOutput(val identifier: String,
-                       val child: PhysicalOperator,
-                       s: Schema) extends PhysicalOperator(s)
-case class ReuseOutput(val identifier: String,
-                       s: Schema) extends PhysicalOperator(s)
+                          _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalUnionAll(val children: List[PhysicalOperator],
+                            _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalCompute(val child: PhysicalOperator,
+                           val aliasedExpressions: List[Tuple2[String, Expression]],
+                           _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalWith(val identifier: String,
+                        val withQuery: PhysicalOperator,
+                        val childQuery: PhysicalOperator,
+                        _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalReuse(val identifier: String,
+                         _schema: Schema) extends PhysicalOperator(_schema)
 case class StoreBenchmark(val identifier: String,
                           val child: PhysicalOperator,
-                          s: Schema) extends PhysicalOperator(s)
-case class PrintBenchmarkConsole(val identifier: String,
+                          _schema: Schema) extends PhysicalOperator(_schema)
+case class PrintBenchmarkToConsole(val identifier: String,
+                                   val child: PhysicalOperator,
+                                   _schema: Schema) extends PhysicalOperator(_schema)
+case class PrintToConsole(val child: PhysicalOperator,
+                          _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalHistogram(val identifier: String,
+                             val child: PhysicalOperator,
+                             _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalHistogramFill(val identifier: String,
                                  val child: PhysicalOperator,
-                                 s: Schema) extends PhysicalOperator(s)
-case class PrintOutputConsole(val child: PhysicalOperator,
-                              s: Schema) extends PhysicalOperator(s)
+                                 _schema: Schema) extends PhysicalOperator(_schema)
+
+case class PhysicalQueueInit(val identifier: String,
+                             val child: PhysicalOperator,
+                             _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalQueuePush(val identifier: String,
+                             val child: PhysicalOperator,
+                             _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalQueuePop(val identifier: String,
+                            _schema: Schema) extends PhysicalOperator(_schema)
+case class PhysicalUDFFilter(val child: PhysicalOperator,
+                             _schema: Schema) extends PhysicalOperator(_schema)

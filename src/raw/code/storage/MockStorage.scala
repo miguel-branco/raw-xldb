@@ -20,16 +20,13 @@
    DISCLAIM ANY LIABILITY OF ANY KIND FOR ANY DAMAGES WHATSOEVER
    RESULTING FROM THE USE OF THIS SOFTWARE.
 */
-package raw.code.executor
+package raw.code.storage
 
 import raw.code.Instruction
 
-import raw.code.storage.Storage
+class MockStorage extends Storage {
 
-import raw.operators.PhysicalOperator
-
-abstract class Executor {
-  def init(): List[Instruction]
-  def done(): List[Instruction]
-  def code(query: PhysicalOperator): List[Instruction]
+  def init(): List[Instruction] = List()
+  def done(): List[Instruction] = List()
+  
 }

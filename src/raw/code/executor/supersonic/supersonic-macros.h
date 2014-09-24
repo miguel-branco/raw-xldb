@@ -21,7 +21,13 @@ using supersonic::NamedAttribute;
 using supersonic::ConstFloat;
 using supersonic::ConstInt32;
 using supersonic::Abs;
+using supersonic::SqrtQuiet;
+using supersonic::Cos;
+using supersonic::Sin;
+using supersonic::Sinh;
+using supersonic::Negate;
 using supersonic::Plus;
+using supersonic::Minus;
 using supersonic::Multiply;
 using supersonic::And;
 using supersonic::Or;
@@ -46,8 +52,14 @@ using supersonic::ResultView;
 using supersonic::View;
 using supersonic::rowcount_t;
 using supersonic::GroupAggregate;
+using supersonic::Compute;
+using supersonic::Alias;
+using supersonic::ExpressionList;
 using supersonic::AggregationSpecification;
 using supersonic::COUNT;
+using supersonic::SUM;
+using supersonic::FIRST;
+using supersonic::LAST;
 #include "supersonic/cursor/core/coalesce.h"
 using supersonic::Coalesce;
 #include "supersonic/cursor/core/merge_union_all.h"
@@ -57,6 +69,9 @@ using supersonic::MergeUnionAll;
 using std::cout;
 using std::endl;
 #include <time.h>
+
+#include <queue>
+using std::queue;
 
 double
 SupersonicBenchmarkDiff(struct timespec st, struct timespec end)
@@ -139,13 +154,17 @@ void SupersonicPrintHelper(FailureOrOwned<Cursor> cursor) {
   }
 }
 
+#include <TApplication.h>
+#include <TH1F.h>
+#include <TCanvas.h>
+#include "MV1.h"
+
 #define SUPERSONIC_SCHEMA_NEW(id)                         TupleSchema schema_##id;
 #define SUPERSONIC_SCHEMA_ADD(id,name,type,nullable)      schema_##id.add_attribute(Attribute(#name,type,nullable));
 #define SUPERSONIC_TABLE_NEW(id)                          Table* table_##id = new Table(schema_##id, HeapBufferAllocator::Get()); \
                                                           scoped_ptr<Operation> id(table_##id);
 #define SUPERSONIC_TABLE_ADD(id)                          rowid_t row = table_##id->AddRow();
 #define SUPERSONIC_TABLE_SET(id,col,type,value)           table_##id->Set<type>(col, row, value);
-#define SUPERSONIC_TABLE_SET_KEY(id,col,var)              table_##id->Set<kRowidDatatype>(col, row, var);
 #define SUPERSONIC_PROJECTOR_NEW(id)                      scoped_ptr<CompoundSingleSourceProjector> projector_##id( \
                                                             new CompoundSingleSourceProjector());
 #define SUPERSONIC_PROJECTOR_ADD(id,name)                 projector_##id->add(ProjectNamedAttribute(#name));
@@ -176,7 +195,7 @@ void SupersonicPrintHelper(FailureOrOwned<Cursor> cursor) {
                                                             child.release()));                                 
 #define SUPERSONIC_UNION(id,child)                                    FailureOrOwned<Cursor> cursor_##child = child.release()->CreateCursor();        \
                                                                       if (!cursor_##child.is_success()) {                                             \
-                                                                        throw new RawException("cursor.is_success");                                  \
+                                                                        throw new RawException(cursor_##child.exception().message());                 \
                                                                       }                                                                               \
                                                                       while (1) {                                                                     \
                                                                         ResultView result(cursor_##child->Next(-1));                                  \
@@ -186,9 +205,17 @@ void SupersonicPrintHelper(FailureOrOwned<Cursor> cursor) {
                                                                         View result_view(result.view());                                              \
                                                                         table_##id->AppendView(result_view);                                          \
                                                                       }
+#define SUPERSONIC_COMPUTOR_NEW(id)                         scoped_ptr<ExpressionList> exp_list_##id(     \
+                                                              new ExpressionList());
+#define SUPERSONIC_COMPUTOR_ADD(id,alias,expr)              exp_list_##id->add(Alias(#alias,expr));
+#define SUPERSONIC_COMPUTE(id,child)                        scoped_ptr<const Expression> exp_##id(        \
+                                                              Flat(exp_list_##id.release()));             \
+                                                            scoped_ptr<Operation> id(                     \
+                                                              Compute(exp_##id.release(),                 \
+                                                                      child.release()));                                                              
 #define SUPERSONIC_COLUMN_LOOP_BEGIN(id,child,selector,stype,ctype)   FailureOrOwned<Cursor> cursor_##id = child.release()->CreateCursor();           \
                                                                       if (!cursor_##id.is_success()) {                                                \
-                                                                        throw new RawException("cursor.is_success");                                  \
+                                                                        throw new RawException(cursor_##id.exception().message());                    \
                                                                       }                                                                               \
                                                                       while (1) {                                                                     \
                                                                         ResultView result(cursor_##id->Next(-1));                                     \
@@ -206,19 +233,76 @@ void SupersonicPrintHelper(FailureOrOwned<Cursor> cursor) {
                                                                           ctype id = result_view.column(col).typed_data<stype>()[idx_##id];
 #define SUPERSONIC_COLUMN_LOOP_END()                                    }                                                                             \
                                                                       }
-#define SUPERSONIC_STORE(id,child)                        scoped_ptr<Operation> id(child.release());
-#define SUPERSONIC_REUSE(id,child)                        scoped_ptr<Operation> id(child.get());
-#define SUPERSONIC_STORE_RELEASE(id)                      id.release();
+#define SUPERSONIC_STORE(id,name)                         scoped_ptr<Operation> name(id.release());
+#define SUPERSONIC_RELEASE(name)                          name.release();
+#define SUPERSONIC_REUSE(id,name)                         scoped_ptr<Operation> id(name.get());
 #define SUPERSONIC_BENCHMARK_START(id)                    struct timespec start_##id, end_##id;                           \
                                                           clock_gettime(CLOCK_REALTIME, &start_##id);
 #define SUPERSONIC_BENCHMARK_STOP(id)                     clock_gettime(CLOCK_REALTIME, &end_##id);
 #define SUPERSONIC_BENCHMARK_PRINT(id)                    cout << "[" << #id << "] Time elapsed: " << SupersonicBenchmarkDiff(start_##id, end_##id) << endl;
-#define SUPERSONIC_PRINT(id)                              SupersonicPrintHelper(id.release()->CreateCursor());
-
-
+#define SUPERSONIC_PRINT(id)                              SupersonicPrintHelper(id.get()->CreateCursor());
+#define SUPERSONIC_HISTOGRAM_NEW(histo)                   double histo[25];                             \
+                                                          int n##histo = 0;                             \
+                                                          struct timespec start_##histo, end_##histo;   \
+                                                          clock_gettime(CLOCK_REALTIME, &start_##histo);
+#define SUPERSONIC_HISTOGRAM_FILL(histo,child)            FailureOrOwned<Cursor> cursor_##id = child.get()->CreateCursor();               \
+                                                          if (!cursor_##id.is_success()) {                                                \
+                                                            throw new RawException(cursor_##id.exception().message());                    \
+                                                          }                                                                               \
+                                                          while (1) {                                                                     \
+                                                            ResultView result(cursor_##id->Next(-1));                                     \
+                                                            if (!result.has_data()) {                                                     \
+                                                              break;                                                                      \
+                                                            }                                                                             \
+                                                            View result_view(result.view());                                              \
+                                                            for (rowcount_t row = 0; row < result_view.row_count(); row++) {              \
+                                                              histo[n##histo] = result_view.column(0).typed_data<DOUBLE>()[row];          \
+                                                            }                                                                             \
+                                                          }
+#define SUPERSONIC_HISTOGRAM_DRAW(histo)                  clock_gettime(CLOCK_REALTIME, &end_##histo);                                    \
+                                                          cout << SupersonicBenchmarkDiff(start_##histo, end_##histo) << endl;
 #define LOAD_FILES_LOOP_BEGIN(id,n,files...)              char* array_##id[] = {files};               \
                                                           for (int i = 0; i < n; i++) {               \
                                                             char* id = array_##id[i];
 #define LOAD_FILES_LOOP_END(id,child)                       SUPERSONIC_UNION(id,child)                \
                                                           }
-                                                                    
+
+#define SUPERSONIC_QUEUE_INIT(queueId)                    queue<Operation* > queueId;
+#define SUPERSONIC_QUEUE_PUSH(queueId,child)              queueId.push(child.get());
+#define SUPERSONIC_QUEUE_POP(queueId,id)                  scoped_ptr<Operation> id(queueId.front());  \
+                                                          queueId.pop();
+#define DEMO_UDF(id,child)                                SUPERSONIC_SCHEMA_NEW(id)                                                       \
+                                                          SUPERSONIC_SCHEMA_ADD(id,EventID,kRowidDatatype,NOT_NULLABLE)                   \
+                                                          SUPERSONIC_SCHEMA_ADD(id,jet_pt,FLOAT,NOT_NULLABLE)                             \
+                                                          SUPERSONIC_SCHEMA_ADD(id,jet_phi,FLOAT,NOT_NULLABLE)                            \
+                                                          SUPERSONIC_SCHEMA_ADD(id,jet_eta,FLOAT,NOT_NULLABLE)                            \
+                                                          SUPERSONIC_SCHEMA_ADD(id,jet_E,FLOAT,NOT_NULLABLE)                              \
+                                                          SUPERSONIC_TABLE_NEW(id)                                                        \
+                                                          FailureOrOwned<Cursor> cursor_##id = child.release()->CreateCursor();           \
+                                                          if (!cursor_##id.is_success()) {                                                \
+                                                            throw new RawException(cursor_##id.exception().message());                    \
+                                                          }                                                                               \
+                                                          while (1) {                                                                     \
+                                                            ResultView result(cursor_##id->Next(-1));                                     \
+                                                            if (!result.has_data())                                                       \
+                                                              break;                                                                      \
+                                                            View result_view(result.view());                                              \
+                                                            for (rowcount_t _row = 0; _row < result_view.row_count(); _row++) {           \
+                                                              float jet_IP3D = result_view.column(7).typed_data<FLOAT>()[_row];           \
+                                                              float jet_SV1 = result_view.column(6).typed_data<FLOAT>()[_row];            \
+                                                              float jet_JFCNN = result_view.column(5).typed_data<FLOAT>()[_row];          \
+                                                              float jet_pt = result_view.column(1).typed_data<FLOAT>()[_row];             \
+                                                              float jet_eta = result_view.column(3).typed_data<FLOAT>()[_row];            \
+                                                              if (mv1Eval(jet_IP3D, jet_SV1, jet_JFCNN, jet_pt, jet_eta) > 0.60173) {     \
+                                                                rowid_t EventID = result_view.column(0).typed_data<kRowidDatatype>()[_row]; \
+                                                                float jet_phi = result_view.column(2).typed_data<FLOAT>()[_row];          \
+                                                                float jet_E = result_view.column(4).typed_data<FLOAT>()[_row];            \
+                                                                SUPERSONIC_TABLE_ADD(id)                                                  \
+                                                                SUPERSONIC_TABLE_SET(id,0,kRowidDatatype,EventID)                         \
+                                                                SUPERSONIC_TABLE_SET(id,1,FLOAT,jet_pt)                                   \                                  
+                                                                SUPERSONIC_TABLE_SET(id,2,FLOAT,jet_phi)                                  \
+                                                                SUPERSONIC_TABLE_SET(id,3,FLOAT,jet_eta)                                  \
+                                                                SUPERSONIC_TABLE_SET(id,4,FLOAT,jet_E)                                    \
+                                                              }                                                                           \
+                                                            }                                                                             \
+                                                          }

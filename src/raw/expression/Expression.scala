@@ -22,15 +22,46 @@
 */
 package raw.expression
 
-sealed class Expression {
+import raw.schema.Schema
+import raw.schema.DataType
+import raw.schema.BOOL
+import raw.schema.INT32
+import raw.schema.FLOAT
+
+sealed abstract class Expression {
   /** Return list of field names used within an expression. */
-  def getFields: List[String] = 
-      this match {
-        case unaryOp : UnaryExpression => unaryOp.child.getFields
-        case binaryOp : BinaryExpression => binaryOp.left.getFields ++ binaryOp.right.getFields
-        case FieldReference(name) => List(name)
-        case _ => List()
-      }    
+  def referencedFields: List[String] = 
+    this match {
+      case FieldReference(name) => List(name)
+      case unaryOp : UnaryExpression => unaryOp.child.referencedFields
+      case binaryOp : BinaryExpression => binaryOp.left.referencedFields ++ binaryOp.right.referencedFields
+      case ternaryOp : TernaryExpression => ternaryOp.first.referencedFields ++ ternaryOp.second.referencedFields ++ ternaryOp.third.referencedFields   
+      case _ => List()
+    }
+  
+  /** Return data type of expression. If it is a FieldReference, consults schema passed as input. */
+  def dataType(schema: Schema): DataType =
+    this match {
+      // FIXME: The following is error-prone and does no validation.
+      case FieldReference(name) => schema.getField(name).dataType 
+      case ConstFloat(_) => FLOAT
+      case ConstInt32(_) => INT32
+      case unaryOp : UnaryExpression => unaryOp.child.dataType(schema)
+      // FIXME: "Trait" the expressions below so that I can handle them as I did for unaryOp above.
+      case Plus(left, _) => left.dataType(schema)
+      case Minus(left, _) => left.dataType(schema)
+      case Multiply(left, _) => left.dataType(schema)
+      case Divide(left, _) => left.dataType(schema)
+      case And(_, _) => BOOL
+      case Or(_, _) => BOOL
+      case Equal(_, _) => BOOL
+      case NotEqual(_, _) => BOOL
+      case Less(_, _) => BOOL
+      case LessOrEqual(_, _) => BOOL
+      case Greater(_, _) => BOOL
+      case GreaterOrEqual(_, _) => BOOL
+      case If(_, second, _) => second.dataType(schema)
+    }
 }
 
 trait TerminalExpression
@@ -42,12 +73,18 @@ trait UnaryExpression {
   val child: Expression
 }
 case class Abs(val child: Expression) extends Expression with UnaryExpression
+case class Cos(val child: Expression) extends Expression with UnaryExpression
+case class Sin(val child: Expression) extends Expression with UnaryExpression
+case class Sinh(val child: Expression) extends Expression with UnaryExpression
+case class Sqrt(val child: Expression) extends Expression with UnaryExpression
+case class Negate(val child: Expression) extends Expression with UnaryExpression
 
 trait BinaryExpression {
   val left: Expression
   val right: Expression
 }
 case class Plus(left: Expression, right: Expression) extends Expression with BinaryExpression
+case class Minus(left: Expression, right: Expression) extends Expression with BinaryExpression
 case class Multiply(left: Expression, right: Expression) extends Expression with BinaryExpression
 case class Divide(left: Expression, right: Expression) extends Expression with BinaryExpression
 case class And(left: Expression, right: Expression) extends Expression with BinaryExpression
@@ -58,3 +95,10 @@ case class Less(left: Expression, right: Expression) extends Expression with Bin
 case class LessOrEqual(left: Expression, right: Expression) extends Expression with BinaryExpression
 case class Greater(left: Expression, right: Expression) extends Expression with BinaryExpression
 case class GreaterOrEqual(left: Expression, right: Expression) extends Expression with BinaryExpression
+
+trait TernaryExpression {
+  val first: Expression
+  val second: Expression
+  val third: Expression
+}
+case class If(first: Expression, second: Expression, third: Expression) extends Expression with TernaryExpression
